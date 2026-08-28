@@ -35,6 +35,6 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: Minesweeper ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: release.md
           files: |
             dist/Minesweeper.exe
