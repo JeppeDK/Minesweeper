@@ -28,7 +28,7 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile --windowed --icon=icon.ico --name Minesweeper minesweeper.py
+          pyinstaller --onefile --windowed --icon=icon.ico --name Minesweeper MinesweeperPython.py
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
