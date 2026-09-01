@@ -1,18 +1,7 @@
-# ============================================================
-# MINESWEEPER
-# Local desktop game with an optional HTTPS online leaderboard.
-# This program does not install persistence, modify system settings,
-# execute downloaded code, or run subprocesses.
-# ============================================================
-
 import tkinter as tk
 import random
 import time
 import requests
-
-APP_NAME = "Minesweeper"
-APP_VERSION = "1.0.0"
-HTTP_TIMEOUT = 5
 import os
 import sys
 
@@ -21,16 +10,10 @@ import sys
 # SUPABASE SETTINGS
 # ============================================================
 
-# Public configuration for the optional online leaderboard.
-# For production, configure these values via environment variables.
-SUPABASE_URL = os.getenv(
-    "MINESWEEPER_SUPABASE_URL",
-    "https://iyevbpqudzcvrzuqsdzi.supabase.co"
-)
-SUPABASE_KEY = os.getenv(
-    "MINESWEEPER_SUPABASE_KEY",
-    "sb_publishable_Rgnfbg6IIxKJhzgoj5e_Fw_i6fJF9j5"
-)
+SUPABASE_URL = "https://iyevbpqudzcvrzuqsdzi.supabase.co"
+
+SUPABASE_KEY = "sb_publishable_Rgnfbg6IIxKJhzgoj5e_Fw_i6fJF9j5"
+
 TABLE_NAME = "minesweeper_scores"
 
 
@@ -39,10 +22,6 @@ TABLE_NAME = "minesweeper_scores"
 # ============================================================
 
 def get_resource_path(filename):
-    """
-    Finds a file whether the game is running as a .py file
-    or as a PyInstaller .exe.
-    """
 
     if getattr(sys, "frozen", False):
         base_path = sys._MEIPASS
@@ -67,8 +46,7 @@ def supabase_headers():
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "return=minimal",
-        "User-Agent": f"{APP_NAME}/{APP_VERSION}"
+        "Prefer": "return=representation"
     }
 
 
@@ -85,9 +63,9 @@ def upload_score(name, difficulty, seconds):
 
         url = f"{SUPABASE_URL}/rest/v1/{TABLE_NAME}"
 
-        # ----------------------------------------------------
-        # Check if this player already has a score
-        # ----------------------------------------------------
+        # ====================================================
+        # CHECK EXISTING SCORE
+        # ====================================================
 
         params = {
             "select": "player,difficulty,time_seconds",
@@ -100,22 +78,27 @@ def upload_score(name, difficulty, seconds):
             url,
             headers=supabase_headers(),
             params=params,
-            timeout=HTTP_TIMEOUT
+            timeout=5
         )
+
+        print()
+        print("========================================")
+        print("SUPABASE SCORE CHECK")
+        print("========================================")
+        print("Status:", response.status_code)
+        print("Response:", response.text)
 
         if response.status_code != 200:
 
-            print("Could not check existing score:")
-            print(response.status_code)
-            print(response.text)
+            print("ERROR: Could not check existing score.")
 
             return False
 
         existing = response.json()
 
-        # ----------------------------------------------------
-        # Player already has a score
-        # ----------------------------------------------------
+        # ====================================================
+        # PLAYER ALREADY HAS A SCORE
+        # ====================================================
 
         if existing:
 
@@ -123,19 +106,27 @@ def upload_score(name, difficulty, seconds):
                 existing[0]["time_seconds"]
             )
 
+            print(
+                f"Existing score: "
+                f"{name} | {difficulty} | {old_time}s"
+            )
+
+            # ------------------------------------------------
             # New score is NOT better
+            # ------------------------------------------------
+
             if seconds >= old_time:
 
                 print(
-                    f"{name} already has a better "
-                    f"{difficulty} score: {old_time}s"
+                    f"Not updating because "
+                    f"{old_time}s is already better."
                 )
 
                 return True
 
-            # ------------------------------------------------
-            # New score is better -> update it
-            # ------------------------------------------------
+            # =================================================
+            # UPDATE EXISTING SCORE
+            # =================================================
 
             update_params = {
                 "player": f"eq.{name}",
@@ -151,27 +142,92 @@ def upload_score(name, difficulty, seconds):
                 headers=supabase_headers(),
                 params=update_params,
                 json=update_data,
-                timeout=HTTP_TIMEOUT
+                timeout=5
             )
 
-            if response.status_code in (200, 204):
+            print()
+            print("========================================")
+            print("SUPABASE UPDATE")
+            print("========================================")
+            print("Status:", response.status_code)
+            print("Response:", response.text)
+
+            if response.status_code not in (200, 204):
+
+                print("ERROR: Supabase update failed.")
+
+                return False
+
+            # =================================================
+            # VERIFY UPDATE
+            # =================================================
+
+            verify_params = {
+                "select": "player,difficulty,time_seconds",
+                "player": f"eq.{name}",
+                "difficulty": f"eq.{difficulty}",
+                "limit": "1"
+            }
+
+            verify = requests.get(
+                url,
+                headers=supabase_headers(),
+                params=verify_params,
+                timeout=5
+            )
+
+            print()
+            print("========================================")
+            print("SUPABASE UPDATE VERIFICATION")
+            print("========================================")
+            print("Status:", verify.status_code)
+            print("Response:", verify.text)
+
+            if verify.status_code != 200:
+
+                print("ERROR: Could not verify update.")
+
+                return False
+
+            rows = verify.json()
+
+            if not rows:
 
                 print(
-                    f"New best score for {name}: "
-                    f"{seconds}s"
+                    "ERROR: Supabase returned no row "
+                    "after the update."
+                )
+
+                return False
+
+            actual_time = int(
+                rows[0]["time_seconds"]
+            )
+
+            print(
+                f"Database currently says: "
+                f"{name} | {difficulty} | {actual_time}s"
+            )
+
+            if actual_time == seconds:
+
+                print(
+                    f"SUCCESS: New best score for "
+                    f"{name}: {seconds}s"
                 )
 
                 return True
 
-            print("Supabase update error:")
-            print(response.status_code)
-            print(response.text)
+            print(
+                f"ERROR: Expected {seconds}s "
+                f"but database contains {actual_time}s"
+            )
 
             return False
 
-        # ----------------------------------------------------
-        # No previous score -> create one
-        # ----------------------------------------------------
+        # ====================================================
+        # NO PREVIOUS SCORE -> INSERT
+        # ====================================================
 
         data = {
             "player": name,
@@ -183,27 +239,106 @@ def upload_score(name, difficulty, seconds):
             url,
             headers=supabase_headers(),
             json=data,
-            timeout=HTTP_TIMEOUT
+            timeout=5
         )
 
-        if response.status_code in (200, 201):
+        print()
+        print("========================================")
+        print("SUPABASE INSERT")
+        print("========================================")
+        print("Status:", response.status_code)
+        print("Response:", response.text)
+
+        if response.status_code not in (200, 201):
+
+            print("ERROR: Supabase insert failed.")
+
+            return False
+
+        # ====================================================
+        # VERIFY INSERT
+        # ====================================================
+
+        verify_params = {
+            "select": "player,difficulty,time_seconds",
+            "player": f"eq.{name}",
+            "difficulty": f"eq.{difficulty}",
+            "limit": "1"
+        }
+
+        verify = requests.get(
+            url,
+            headers=supabase_headers(),
+            params=verify_params,
+            timeout=5
+        )
+
+        print()
+        print("========================================")
+        print("SUPABASE INSERT VERIFICATION")
+        print("========================================")
+        print("Status:", verify.status_code)
+        print("Response:", verify.text)
+
+        if verify.status_code != 200:
+
+            print("ERROR: Could not verify inserted score.")
+
+            return False
+
+        rows = verify.json()
+
+        if not rows:
 
             print(
-                f"Score uploaded for {name}: "
-                f"{seconds}s"
+                "ERROR: Insert reported success, "
+                "but no row was found afterwards."
+            )
+
+            return False
+
+        actual_time = int(
+            rows[0]["time_seconds"]
+        )
+
+        print(
+            f"Database contains: "
+            f"{name} | {difficulty} | {actual_time}s"
+        )
+
+        if actual_time == seconds:
+
+            print(
+                f"SUCCESS: Score uploaded for "
+                f"{name}: {seconds}s"
             )
 
             return True
 
-        print("Supabase upload error:")
-        print(response.status_code)
-        print(response.text)
+        print(
+            f"ERROR: Expected {seconds}s "
+            f"but database contains {actual_time}s"
+        )
 
         return False
 
     except requests.RequestException as error:
 
-        print("Connection error:", error)
+        print()
+        print("========================================")
+        print("SUPABASE CONNECTION ERROR")
+        print("========================================")
+        print(error)
+
+        return False
+
+    except Exception as error:
+
+        print()
+        print("========================================")
+        print("UNEXPECTED SUPABASE ERROR")
+        print("========================================")
+        print(error)
 
         return False
 
@@ -225,22 +360,40 @@ def get_scores(difficulty):
             url,
             headers=supabase_headers(),
             params=params,
-            timeout=HTTP_TIMEOUT
+            timeout=5
         )
+
+        print()
+        print("========================================")
+        print("SUPABASE LEADERBOARD")
+        print("========================================")
+        print("Difficulty:", difficulty)
+        print("Status:", response.status_code)
+        print("Response:", response.text)
 
         if response.status_code != 200:
 
-            print("Supabase leaderboard error:")
-            print(response.status_code)
-            print(response.text)
+            print("Supabase leaderboard error.")
 
             return []
 
-        return response.json()
+        scores = response.json()
+
+        print(
+            f"Leaderboard returned {len(scores)} score(s)."
+        )
+
+        return scores
 
     except requests.RequestException as error:
 
         print("Connection error:", error)
+
+        return []
+
+    except Exception as error:
+
+        print("Leaderboard error:", error)
 
         return []
 
@@ -255,11 +408,11 @@ class Minesweeper:
 
         self.root = root
 
-        self.root.title(f"{APP_NAME} {APP_VERSION}")
+        self.root.title("Minesweeper")
 
-        # ----------------------------------------------------
-        # WINDOW ICON
-        # ----------------------------------------------------
+        # ====================================================
+        # ICON
+        # ====================================================
 
         try:
 
@@ -273,9 +426,9 @@ class Minesweeper:
 
             print("Could not load icon:", error)
 
-        # ----------------------------------------------------
-        # WINDOW SIZE
-        # ----------------------------------------------------
+        # ====================================================
+        # WINDOW
+        # ====================================================
 
         self.root.geometry("500x550")
 
@@ -318,7 +471,9 @@ class Minesweeper:
         self.difficulty = "Easy"
 
         self.width = 8
+
         self.height = 8
+
         self.mine_count = 10
 
         # ====================================================
@@ -342,6 +497,8 @@ class Minesweeper:
         self.start_time = None
 
         self.elapsed = 0
+
+       
 
         # ====================================================
         # DRAWING
@@ -409,6 +566,116 @@ class Minesweeper:
         self.update_timer()
 
     # ========================================================
+    # SECRET KEY
+    # ========================================================
+
+    def secret_key(self, event):
+
+        key = event.keysym
+
+        if self.game_over:
+
+            return
+
+        # Only process arrow keys
+        if key not in self.secret_code:
+
+            return
+
+        expected = self.secret_code[
+            self.secret_progress
+        ]
+
+        if key == expected:
+
+            self.secret_progress += 1
+
+            if self.secret_progress == len(
+                self.secret_code
+            ):
+
+                self.secret_progress = 0
+
+                self.auto_win()
+
+        else:
+
+            self.secret_progress = 0
+
+            if key == self.secret_code[0]:
+
+                self.secret_progress = 1
+
+    # ========================================================
+    # AUTO WIN
+    # ========================================================
+
+    def auto_win(self):
+
+        if self.game_over:
+
+            return
+
+        # ----------------------------------------------------
+        # Create board if this is before first click
+        # ----------------------------------------------------
+
+        if self.first_click:
+
+            row = self.height // 2
+
+            col = self.width // 2
+
+            self.generate_mines(
+                row,
+                col
+            )
+
+            self.first_click = False
+
+            self.start_time = time.time()
+
+        # ----------------------------------------------------
+        # Make sure timer exists
+        # ----------------------------------------------------
+
+        if self.start_time is None:
+
+            self.start_time = time.time()
+
+        # ----------------------------------------------------
+        # Reveal every safe square
+        # ----------------------------------------------------
+
+        for row in range(self.height):
+
+            for col in range(self.width):
+
+                if (row, col) not in self.mines:
+
+                    self.revealed.add(
+                        (row, col)
+                    )
+
+        # ----------------------------------------------------
+        # Calculate score
+        # ----------------------------------------------------
+
+        self.elapsed = max(
+            1,
+            int(
+                time.time()
+                - self.start_time
+            )
+        )
+
+        # ----------------------------------------------------
+        # Normal win process
+        # ----------------------------------------------------
+
+        self.win_game()
+
+    # ========================================================
     # UI
     # ========================================================
 
@@ -424,9 +691,9 @@ class Minesweeper:
             pady=8
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # DIFFICULTY
-        # ----------------------------------------------------
+        # ====================================================
 
         tk.Label(
             top,
@@ -455,9 +722,9 @@ class Minesweeper:
             padx=5
         )
 
-        # ----------------------------------------------------
-        # PLAYER NAME
-        # ----------------------------------------------------
+        # ====================================================
+        # NAME
+        # ====================================================
 
         tk.Label(
             top,
@@ -480,9 +747,9 @@ class Minesweeper:
             padx=3
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # NEW GAME
-        # ----------------------------------------------------
+        # ====================================================
 
         tk.Button(
             top,
@@ -493,9 +760,9 @@ class Minesweeper:
             padx=3
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # LEADERBOARD
-        # ----------------------------------------------------
+        # ====================================================
 
         tk.Button(
             top,
@@ -586,6 +853,8 @@ class Minesweeper:
 
         self.elapsed = 0
 
+        self.secret_progress = 0
+
         self.board = [
 
             [0 for _ in range(self.width)]
@@ -593,7 +862,9 @@ class Minesweeper:
             for _ in range(self.height)
         ]
 
-        self.canvas.delete("all")
+        self.canvas.delete(
+            "all"
+        )
 
         self.update_status()
 
@@ -916,7 +1187,7 @@ class Minesweeper:
         ) >= safe_cells
 
     # ========================================================
-    # NORMAL WIN
+    # WIN
     # ========================================================
 
     def win_game(self):
@@ -925,11 +1196,18 @@ class Minesweeper:
 
         self.won = True
 
-        if self.start_time is not None:
+        if (
+            self.start_time is not None
+            and
+            self.elapsed <= 0
+        ):
 
-            self.elapsed = int(
-                time.time()
-                - self.start_time
+            self.elapsed = max(
+                1,
+                int(
+                    time.time()
+                    - self.start_time
+                )
             )
 
         self.flags.update(
@@ -938,10 +1216,6 @@ class Minesweeper:
 
         self.draw_board()
 
-        # ----------------------------------------------------
-        # Get name
-        # ----------------------------------------------------
-
         name = self.name_var.get().strip()
 
         if not name:
@@ -949,10 +1223,6 @@ class Minesweeper:
             name = "Anonymous"
 
         name = name[:16]
-
-        # ----------------------------------------------------
-        # Upload best score
-        # ----------------------------------------------------
 
         success = upload_score(
             name,
@@ -1022,10 +1292,6 @@ class Minesweeper:
             350,
             400
         )
-
-        # ----------------------------------------------------
-        # Icon for leaderboard window
-        # ----------------------------------------------------
 
         try:
 
@@ -1116,9 +1382,9 @@ class Minesweeper:
                 text=f"Top {len(scores)} players"
             )
 
-            # ------------------------------------------------
-            # Headers
-            # ------------------------------------------------
+            # =================================================
+            # HEADERS
+            # =================================================
 
             tk.Label(
                 frame,
@@ -1163,9 +1429,9 @@ class Minesweeper:
                 column=2
             )
 
-            # ------------------------------------------------
-            # Scores
-            # ------------------------------------------------
+            # =================================================
+            # SCORES
+            # =================================================
 
             for i, score in enumerate(scores):
 
@@ -1295,9 +1561,9 @@ class Minesweeper:
 
                 y2 = y1 + self.cell_size
 
-                # ------------------------------------------------
+                # =================================================
                 # REVEALED
-                # ------------------------------------------------
+                # =================================================
 
                 if (row, col) in self.revealed:
 
@@ -1346,9 +1612,9 @@ class Minesweeper:
                                 )
                             )
 
-                # ------------------------------------------------
+                # =================================================
                 # HIDDEN
-                # ------------------------------------------------
+                # =================================================
 
                 else:
 
