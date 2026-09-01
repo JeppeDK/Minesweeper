@@ -1,4 +1,3 @@
-# 💣 Minesweeper v1.0.2
 
 Thanks for downloading Minesweeper!
 

@@ -1,7 +1,18 @@
+# ============================================================
+# MINESWEEPER
+# Local desktop game with an optional HTTPS online leaderboard.
+# This program does not install persistence, modify system settings,
+# execute downloaded code, or run subprocesses.
+# ============================================================
+
 import tkinter as tk
 import random
 import time
 import requests
+
+APP_NAME = "Minesweeper"
+APP_VERSION = "1.0.0"
+HTTP_TIMEOUT = 5
 import os
 import sys
 
@@ -10,10 +21,16 @@ import sys
 # SUPABASE SETTINGS
 # ============================================================
 
-SUPABASE_URL = "https://iyevbpqudzcvrzuqsdzi.supabase.co"
-
-SUPABASE_KEY = "sb_publishable_Rgnfbg6IIxKJhzgoj5e_Fw_i6fJF9j5"
-
+# Public configuration for the optional online leaderboard.
+# For production, configure these values via environment variables.
+SUPABASE_URL = os.getenv(
+    "MINESWEEPER_SUPABASE_URL",
+    "https://iyevbpqudzcvrzuqsdzi.supabase.co"
+)
+SUPABASE_KEY = os.getenv(
+    "MINESWEEPER_SUPABASE_KEY",
+    "sb_publishable_Rgnfbg6IIxKJhzgoj5e_Fw_i6fJF9j5"
+)
 TABLE_NAME = "minesweeper_scores"
 
 
@@ -50,7 +67,8 @@ def supabase_headers():
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "return=minimal"
+        "Prefer": "return=minimal",
+        "User-Agent": f"{APP_NAME}/{APP_VERSION}"
     }
 
 
@@ -82,7 +100,7 @@ def upload_score(name, difficulty, seconds):
             url,
             headers=supabase_headers(),
             params=params,
-            timeout=5
+            timeout=HTTP_TIMEOUT
         )
 
         if response.status_code != 200:
@@ -133,7 +151,7 @@ def upload_score(name, difficulty, seconds):
                 headers=supabase_headers(),
                 params=update_params,
                 json=update_data,
-                timeout=5
+                timeout=HTTP_TIMEOUT
             )
 
             if response.status_code in (200, 204):
@@ -165,7 +183,7 @@ def upload_score(name, difficulty, seconds):
             url,
             headers=supabase_headers(),
             json=data,
-            timeout=5
+            timeout=HTTP_TIMEOUT
         )
 
         if response.status_code in (200, 201):
@@ -207,7 +225,7 @@ def get_scores(difficulty):
             url,
             headers=supabase_headers(),
             params=params,
-            timeout=5
+            timeout=HTTP_TIMEOUT
         )
 
         if response.status_code != 200:
@@ -237,7 +255,7 @@ class Minesweeper:
 
         self.root = root
 
-        self.root.title("Minesweeper")
+        self.root.title(f"{APP_NAME} {APP_VERSION}")
 
         # ----------------------------------------------------
         # WINDOW ICON
